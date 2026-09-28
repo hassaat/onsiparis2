@@ -47,17 +47,22 @@ st.markdown(f"""
     """, unsafe_allow_html=True)
 
 # --- 3. VERİ BAĞLANTISI ---
-URL = "https://script.google.com/macros/s/AKfycbxI5Xez-zVT2R1ajG-trRk_49y-byTmHLnSpos0mco10OWDZ69UNgecXFIDv9jp8MfZ9g/exec"
+URL = "https://script.google.com/macros/s/AKfycbyDSOx6wrH871JYJ03IDxfRskcJj4qKImgj8hmyHmdzWfHyLmPPsi-J6nsREPo5cjuoVg/exec"
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def verileri_yukle():
-    retries = 3
-    for attempt in range(retries):
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    }
+    for _ in range(3):
         try:
-            res = requests.get(URL, timeout=15)
-            if res.status_code == 200 and res.text:
-                return pd.DataFrame(res.json())
-        except Exception:
+            # Google Apps Script yönlendirmelerini allow_redirects=True ile takip ediyoruz
+            res = requests.get(URL, headers=headers, timeout=15, allow_redirects=True)
+            if res.status_code == 200:
+                data = res.json()
+                if data:
+                    return pd.DataFrame(data)
+        except Exception as e:
             time.sleep(1)
     return pd.DataFrame()
 
@@ -67,12 +72,13 @@ df = verileri_yukle()
 if df.empty:
     st.error("⚠️ Stok listesi şu an yüklenemiyor. Lütfen birkaç saniye sonra sayfayı yenileyin.")
     if st.button("🔄 Yeniden Dene"):
+        st.cache_data.clear()  # Önbelleği temizleyip tekrar dener
         st.rerun()
 else:
-    # Eğer sipariş az önce gönderildiyse başarı mesajı göster ve yeni sipariş için buton koy
+    # Sipariş gönderim sonrası ekranı
     if st.session_state.siparis_gonderildi:
         st.balloons()
-        st.success("✅ Siparişiniz başarıyla iletilmiştir! Adetleriniz sıfırlandı.")
+        st.success("✅ Siparişiniz başarıyla iletilmiştir!")
         if st.button("➕ Yeni Sipariş Oluştur"):
             st.session_state.siparis_gonderildi = False
             st.rerun()
@@ -100,6 +106,13 @@ else:
             stok = 0
 
         if stok > 0:
+            # Benzersiz Key: Model Kodu kullanarak key çakışmalarını ve hatayı engelliyoruz
+            input_key = f"sel_{model_kodu}"
+            
+            # Key'i önceden güvenli şekilde başlatıyoruz
+            if input_key not in st.session_state:
+                st.session_state[input_key] = 0
+
             with st.container():
                 c_img, c_info, c_input = st.columns([1, 2, 1])
                 with c_img:
@@ -110,7 +123,6 @@ else:
                     st.markdown(f"Fiyat: <span class='price-text'>{fiyat} TL</span>", unsafe_allow_html=True)
                     st.caption(f"Stok: {stok}")
                 with c_input:
-                    input_key = f"sel_{i}"
                     adet = st.number_input("Adet", min_value=0, max_value=stok, key=input_key, step=1)
                     if adet > 0:
                         siparisler[model_kodu] = adet
@@ -131,7 +143,7 @@ else:
             
             with st.spinner("Siparişiniz iletiliyor..."):
                 basarili = False
-                for attempt in range(3):
+                for _ in range(3):
                     try:
                         res = requests.post(URL, json=veri_paketi, timeout=20)
                         if res.status_code == 200:
@@ -141,12 +153,11 @@ else:
                         time.sleep(1)
 
                 if basarili:
-                    # 1. Seçili ürün adetlerini sıfırla
-                    for key in list(st.session_state.keys()):
-                        if key.startswith("sel_"):
-                            st.session_state[key] = 0
+                    # Seçili ürün adetlerini güvenli sıfırlama
+                    for k in list(st.session_state.keys()):
+                        if k.startswith("sel_"):
+                            st.session_state[k] = 0
 
-                    # 2. Siparişin gönderildiğini kaydet ve sayfayı tazele
                     st.session_state.siparis_gonderildi = True
                     st.rerun()
                 else:
