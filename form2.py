@@ -48,7 +48,7 @@ st.markdown(f"""
 # --- 3. VERİ BAĞLANTISI ---
 URL = "https://script.google.com/macros/s/AKfycbxT0nZZTbiosHHwcf88pC1wFcHHswVIWzGrI76qHF8zqNlorlDQZHidkyqa5tRQnbpLLg/exec"
 
-@st.cache_data(ttl=15, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def verileri_yukle():
     try:
         res = requests.get(URL, timeout=10)
