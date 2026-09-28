@@ -7,6 +7,10 @@ import time
 # --- 1. SAYFA AYARLARI ---
 st.set_page_config(page_title="Ön Sipariş Paneli", layout="centered", page_icon="📝")
 
+# Session State Tanımlamaları
+if "siparis_gonderildi" not in st.session_state:
+    st.session_state.siparis_gonderildi = False
+
 # Arayüz Makyajı (CSS)
 st.markdown("""
     <style>
@@ -45,7 +49,6 @@ st.markdown(f"""
 # --- 3. VERİ BAĞLANTISI ---
 URL = "https://script.google.com/macros/s/AKfycbxT0nZZTbiosHHwcf88pC1wFcHHswVIWzGrI76qHF8zqNlorlDQZHidkyqa5tRQnbpLLg/exec"
 
-# 5 dakika boyunca hafızada tutulur. İstek sınırını engeller.
 @st.cache_data(ttl=300, show_spinner=False)
 def verileri_yukle():
     retries = 3
@@ -55,7 +58,7 @@ def verileri_yukle():
             if res.status_code == 200 and res.text:
                 return pd.DataFrame(res.json())
         except Exception:
-            time.sleep(1) # Hata alırsa 1 saniye bekleyip tekrar dener
+            time.sleep(1)
     return pd.DataFrame()
 
 # --- 4. ANA FORM ---
@@ -66,11 +69,19 @@ if df.empty:
     if st.button("🔄 Yeniden Dene"):
         st.rerun()
 else:
+    # Eğer sipariş az önce gönderildiyse başarı mesajı göster ve yeni sipariş için buton koy
+    if st.session_state.siparis_gonderildi:
+        st.balloons()
+        st.success("✅ Siparişiniz başarıyla iletilmiştir! Adetleriniz sıfırlandı.")
+        if st.button("➕ Yeni Sipariş Oluştur"):
+            st.session_state.siparis_gonderildi = False
+            st.rerun()
+
     col_b1, col_b2 = st.columns(2)
     with col_b1:
-        musteri = st.text_input("👤 Adınız Soyadınız", placeholder="Adınız Soyadınız")
+        musteri = st.text_input("👤 Adınız Soyadınız", placeholder="Adınız Soyadınız", key="input_musteri")
     with col_b2:
-        firma = st.text_input("🏢 Firma Adı", placeholder="Şirket Adı")
+        firma = st.text_input("🏢 Firma Adı", placeholder="Şirket Adı", key="input_firma")
 
     st.write("---")
     st.subheader("Mevcut Modeller")
@@ -99,7 +110,8 @@ else:
                     st.markdown(f"Fiyat: <span class='price-text'>{fiyat} TL</span>", unsafe_allow_html=True)
                     st.caption(f"Stok: {stok}")
                 with c_input:
-                    adet = st.number_input("Adet", min_value=0, max_value=stok, key=f"sel_{i}", step=1)
+                    input_key = f"sel_{i}"
+                    adet = st.number_input("Adet", min_value=0, max_value=stok, key=input_key, step=1)
                     if adet > 0:
                         siparisler[model_kodu] = adet
             st.divider()
@@ -129,8 +141,13 @@ else:
                         time.sleep(1)
 
                 if basarili:
-                    st.success("✅ Siparişiniz başarıyla iletildi!")
-                    time.sleep(2)
+                    # 1. Seçili ürün adetlerini sıfırla
+                    for key in list(st.session_state.keys()):
+                        if key.startswith("sel_"):
+                            st.session_state[key] = 0
+
+                    # 2. Siparişin gönderildiğini kaydet ve sayfayı tazele
+                    st.session_state.siparis_gonderildi = True
                     st.rerun()
                 else:
                     st.error("⚠️ Sunucu yoğunluğu nedeniyle iletilemedi. Lütfen butona tekrar basarak deneyin.")
