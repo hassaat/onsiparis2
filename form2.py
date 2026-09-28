@@ -93,7 +93,7 @@ else:
         # Müşteri Bilgileri
         col_b1, col_b2 = st.columns(2)
         with col_b1:
-            musteri = st.text_input("👤 Adınız Soyadınız", placeholder="Adınız Soyadınız")
+            musteri = st.text_input("👤 Adınız Soyadınız (Firma Adı / İl )", placeholder="Sipariş Notu")
         with col_b2:
             firma = st.text_input("🏢 Firma Adı", placeholder="Şirket Adı")
 
