@@ -50,7 +50,7 @@ st.markdown(f"""
     </div>
     """, unsafe_allow_html=True)
 
-# --- 3. VERİ BAĞLANTISI (KESİNTİSİZ TEKRAR DENEMELİ) ---
+# --- 3. VERİ BAĞLANTISI ---
 URL = "https://script.google.com/macros/s/AKfycbxI5Xez-zVT2R1ajG-trRk_49y-byTmHLnSpos0mco10OWDZ69UNgecXFIDv9jp8MfZ9g/exec"
 
 @st.cache_data(ttl=30, show_spinner=False)
@@ -58,7 +58,6 @@ def verileri_yukle():
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
     }
-    # Anlık Google kopmalarına karşı 5 kez tekrar dener
     for _ in range(5):
         try:
             res = requests.get(URL, headers=headers, timeout=20, allow_redirects=True)
@@ -87,51 +86,58 @@ else:
             st.session_state.siparis_gonderildi = False
             st.rerun()
 
-    # Müşteri Bilgileri
-    col_b1, col_b2 = st.columns(2)
-    with col_b1:
-        musteri = st.text_input("👤 Adınız Soyadınız", placeholder="Adınız Soyadınız", key="input_musteri")
-    with col_b2:
-        firma = st.text_input("🏢 Firma Adı", placeholder="Şirket Adı", key="input_firma")
+    # --- SİPARİŞ FORMU BAŞLANGICI ---
+    # clear_on_submit=True özelliği buton basıldığı anda tüm alanları (adet, metin) sıfırlar
+    with st.form(key="siparis_formu", clear_on_submit=True):
+        
+        # Müşteri Bilgileri
+        col_b1, col_b2 = st.columns(2)
+        with col_b1:
+            musteri = st.text_input("👤 Adınız Soyadınız", placeholder="Adınız Soyadınız")
+        with col_b2:
+            firma = st.text_input("🏢 Firma Adı", placeholder="Şirket Adı")
 
-    st.write("---")
-    st.subheader("Mevcut Modeller")
-    
-    siparisler = {}
+        st.write("---")
+        st.subheader("Mevcut Modeller")
+        
+        siparisler = {}
 
-    # Ürünleri Listeleme Döngüsü
-    for i, row in df.iterrows():
-        model_kodu = str(row.get('Kodu', '')).strip()
-        stok_miktari = row.get('Miktar', 0)
-        gorsel_linki = row.get('URL', '')
-        fiyat = row.get('P.S.F.', '0')
+        # Ürünleri Listeleme Döngüsü
+        for i, row in df.iterrows():
+            model_kodu = str(row.get('Kodu', '')).strip()
+            stok_miktari = row.get('Miktar', 0)
+            gorsel_linki = row.get('URL', '')
+            fiyat = row.get('P.S.F.', '0')
 
-        try:
-            stok = int(float(stok_miktari))
-        except:
-            stok = 0
+            try:
+                stok = int(float(stok_miktari))
+            except:
+                stok = 0
 
-        # Sadece stoğu olan ürünleri göster
-        if stok > 0 and model_kodu:
-            input_key = f"sel_{model_kodu}"
+            # Sadece stoğu olan ürünleri göster
+            if stok > 0 and model_kodu:
+                input_key = f"sel_{model_kodu}"
 
-            with st.container():
-                c_img, c_info, c_input = st.columns([1, 2, 1])
-                with c_img:
-                    if gorsel_linki:
-                        st.image(gorsel_linki, use_container_width=True)
-                with c_info:
-                    st.markdown(f"<p class='model-header'>{model_kodu}</p>", unsafe_allow_html=True)
-                    st.markdown(f"Fiyat: <span class='price-text'>{fiyat} TL</span>", unsafe_allow_html=True)
-                    st.caption(f"Stok: {stok}")
-                with c_input:
-                    adet = st.number_input("Adet", min_value=0, max_value=stok, key=input_key, step=1)
-                    if adet > 0:
-                        siparisler[model_kodu] = adet
-            st.divider()
+                with st.container():
+                    c_img, c_info, c_input = st.columns([1, 2, 1])
+                    with c_img:
+                        if gorsel_linki:
+                            st.image(gorsel_linki, use_container_width=True)
+                    with c_info:
+                        st.markdown(f"<p class='model-header'>{model_kodu}</p>", unsafe_allow_html=True)
+                        st.markdown(f"Fiyat: <span class='price-text'>{fiyat} TL</span>", unsafe_allow_html=True)
+                        st.caption(f"Stok: {stok}")
+                    with c_input:
+                        adet = st.number_input("Adet", min_value=0, max_value=stok, key=input_key, step=1)
+                        if adet > 0:
+                            siparisler[model_kodu] = adet
+                st.divider()
 
-    # --- SİPARİŞİ ONAYLA VE GÖNDER ---
-    if st.button("🚀 Siparişi Onayla ve Gönder", use_container_width=True, type="primary"):
+        # Form Gönderme Butonu
+        gonder_butonu = st.form_submit_button("🚀 Siparişi Onayla ve Gönder", type="primary", use_container_width=True)
+
+    # --- SİPARİŞİ İŞLEME VE GÖNDERME ---
+    if gonder_butonu:
         if musteri and firma and siparisler:
             veri_paketi = [
                 {
@@ -155,15 +161,9 @@ else:
                         time.sleep(1)
 
                 if basarili:
-                    # GÜVENLİ SIFIRLAMA: Session state üzerindeki adet seçimlerini temizliyoruz
-                    for key in list(st.session_state.keys()):
-                        if key.startswith("sel_"):
-                            del st.session_state[key]
-
-                    # Başarı bayrağını set et, önbelleği temizle ve sayfayı yenile
                     st.session_state.siparis_gonderildi = True
-                    st.cache_data.clear()
-                    st.rerun()
+                    st.cache_data.clear()  # Stokları güncellemek için önbelleği sıfırla
+                    st.rerun()  # Sayfayı sıfırlanmış olarak baştan yükle
                 else:
                     st.error("⚠️ Sunucu yoğunluğu nedeniyle iletilemedi. Lütfen tekrar deneyin.")
         else:
