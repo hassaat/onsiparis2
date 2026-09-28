@@ -17,13 +17,10 @@ st.markdown("""
     .price-text { color: #2ecc71; font-weight: bold; font-size: 1.15rem; }
     .model-header { font-size: 1.1rem; font-weight: bold; color: #222; margin-bottom: 2px; }
     [data-testid="stImage"] img { border-radius: 12px; }
-    /* Form alanlarını güzelleştirme */
     .stTextInput input { border-radius: 8px; }
     .stNumberInput div { border-radius: 8px; }
     </style>
     """, unsafe_allow_html=True)
-
-# ... yukarıdaki kodlar (Sayfa Ayarları ve CSS) ...
 
 # --- 2. LOGO VE BAŞLIK ---
 LOGO_URL = "https://b2bc.ams3.cdn.digitaloceanspaces.com/haselektron/ckeditor/pictures/66/hassaat-logo2.png"
@@ -48,28 +45,32 @@ st.markdown(f"""
 # --- 3. VERİ BAĞLANTISI ---
 URL = "https://script.google.com/macros/s/AKfycbxT0nZZTbiosHHwcf88pC1wFcHHswVIWzGrI76qHF8zqNlorlDQZHidkyqa5tRQnbpLLg/exec"
 
+# 5 dakika boyunca hafızada tutulur. İstek sınırını engeller.
 @st.cache_data(ttl=300, show_spinner=False)
 def verileri_yukle():
-    try:
-        res = requests.get(URL, timeout=10)
-        if res.status_code == 200:
-            return pd.DataFrame(res.json())
-    except:
-        pass
+    retries = 3
+    for attempt in range(retries):
+        try:
+            res = requests.get(URL, timeout=15)
+            if res.status_code == 200 and res.text:
+                return pd.DataFrame(res.json())
+        except Exception:
+            time.sleep(1) # Hata alırsa 1 saniye bekleyip tekrar dener
     return pd.DataFrame()
 
 # --- 4. ANA FORM ---
 df = verileri_yukle()
 
 if df.empty:
-    st.error("⚠️ Stok listesi şu an yüklenemiyor. Lütfen bağlantıyı kontrol edin.")
+    st.error("⚠️ Stok listesi şu an yüklenemiyor. Lütfen birkaç saniye sonra sayfayı yenileyin.")
+    if st.button("🔄 Yeniden Dene"):
+        st.rerun()
 else:
-    # Müşteri Bilgileri
     col_b1, col_b2 = st.columns(2)
     with col_b1:
-        musteri = st.text_input("👤 Firma Adı", placeholder="Firma Adı")
+        musteri = st.text_input("👤 Adınız Soyadınız", placeholder="Adınız Soyadınız")
     with col_b2:
-        firma = st.text_input("🏢 Sipariş Notu", placeholder="Sipariş Notu")
+        firma = st.text_input("🏢 Firma Adı", placeholder="Şirket Adı")
 
     st.write("---")
     st.subheader("Mevcut Modeller")
@@ -106,30 +107,34 @@ else:
     # --- SİPARİŞ GÖNDERME ---
     if st.button("🚀 Siparişi Onayla ve Gönder", use_container_width=True, type="primary"):
         if musteri and firma and siparisler:
-            veri_paketi = []
-            for m, a in siparisler.items():
-                veri_paketi.append({
+            veri_paketi = [
+                {
                     "Tarih": datetime.now().strftime("%d/%m/%Y %H:%M"),
                     "Müşteri": musteri,
                     "Firma": firma,
                     "Model": m,
                     "Adet": a
-                })
+                } for m, a in siparisler.items()
+            ]
             
             with st.spinner("Siparişiniz iletiliyor..."):
-                try:
-                    requests.post(URL, json=veri_paketi, timeout=15)
+                basarili = False
+                for attempt in range(3):
+                    try:
+                        res = requests.post(URL, json=veri_paketi, timeout=20)
+                        if res.status_code == 200:
+                            basarili = True
+                            break
+                    except:
+                        time.sleep(1)
+
+                if basarili:
                     st.success("✅ Siparişiniz başarıyla iletildi!")
-                    st.cache_data.clear()
                     time.sleep(2)
                     st.rerun()
-                except:
-                    st.success("✅ Sipariş iletildi (Sayfa yenileniyor).")
-                    st.cache_data.clear()
-                    time.sleep(2)
-                    st.rerun()
+                else:
+                    st.error("⚠️ Sunucu yoğunluğu nedeniyle iletilemedi. Lütfen butona tekrar basarak deneyin.")
         else:
             st.warning("⚠️ Lütfen isim, firma ve en az bir ürün seçtiğinizden emin olun.")
-
 
 st.caption("© 2026 Has Saat")
