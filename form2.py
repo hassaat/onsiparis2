@@ -4,14 +4,18 @@ import pandas as pd
 from datetime import datetime
 import time
 
-# --- 1. SAYFA AYARLARI ---
-st.set_page_config(page_title="Ön Sipariş Paneli", layout="centered", page_icon="📝")
+# --- 1. SAYFA AYARLARI VE CSS ---
+st.set_page_config(
+    page_title="Ön Sipariş Paneli", 
+    layout="centered", 
+    page_icon="📝"
+)
 
 # Session State Tanımlamaları
 if "siparis_gonderildi" not in st.session_state:
     st.session_state.siparis_gonderildi = False
 
-# Arayüz Makyajı (CSS)
+# Arayüz Özelleştirmeleri
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
@@ -46,43 +50,44 @@ st.markdown(f"""
     </div>
     """, unsafe_allow_html=True)
 
-# --- 3. VERİ BAĞLANTISI ---
-URL = "https://script.google.com/macros/s/AKfycbyDSOx6wrH871JYJ03IDxfRskcJj4qKImgj8hmyHmdzWfHyLmPPsi-J6nsREPo5cjuoVg/exec"
+# --- 3. VERİ BAĞLANTISI (KESİNTİSİZ TEKRAR DENEMELİ) ---
+URL = "https://script.google.com/macros/s/AKfycbxI5Xez-zVT2R1ajG-trRk_49y-byTmHLnSpos0mco10OWDZ69UNgecXFIDv9jp8MfZ9g/exec"
 
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_data(ttl=30, show_spinner=False)
 def verileri_yukle():
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
     }
-    for _ in range(3):
+    # Anlık Google kopmalarına karşı 5 kez tekrar dener
+    for _ in range(5):
         try:
-            # Google Apps Script yönlendirmelerini allow_redirects=True ile takip ediyoruz
-            res = requests.get(URL, headers=headers, timeout=15, allow_redirects=True)
+            res = requests.get(URL, headers=headers, timeout=20, allow_redirects=True)
             if res.status_code == 200:
-                data = res.json()
-                if data:
-                    return pd.DataFrame(data)
-        except Exception as e:
+                json_data = res.json()
+                if isinstance(json_data, list) and len(json_data) > 0:
+                    return pd.DataFrame(json_data)
+        except Exception:
             time.sleep(1)
     return pd.DataFrame()
 
-# --- 4. ANA FORM ---
+# --- 4. ANA FORM VE AKIŞ ---
 df = verileri_yukle()
 
 if df.empty:
-    st.error("⚠️ Stok listesi şu an yüklenemiyor. Lütfen birkaç saniye sonra sayfayı yenileyin.")
-    if st.button("🔄 Yeniden Dene"):
-        st.cache_data.clear()  # Önbelleği temizleyip tekrar dener
+    st.error("⚠️ Stok listesi şu an yüklenemiyor. Lütfen birkaç saniye sonra yeniden deneyin.")
+    if st.button("🔄 Yeniden Dene", use_container_width=True):
+        st.cache_data.clear()
         st.rerun()
 else:
-    # Sipariş gönderim sonrası ekranı
+    # Sipariş başarıyla gönderildiyse gösterilecek ekran
     if st.session_state.siparis_gonderildi:
         st.balloons()
         st.success("✅ Siparişiniz başarıyla iletilmiştir!")
-        if st.button("➕ Yeni Sipariş Oluştur"):
+        if st.button("➕ Yeni Sipariş Oluştur", type="primary", use_container_width=True):
             st.session_state.siparis_gonderildi = False
             st.rerun()
 
+    # Müşteri Bilgileri
     col_b1, col_b2 = st.columns(2)
     with col_b1:
         musteri = st.text_input("👤 Adınız Soyadınız", placeholder="Adınız Soyadınız", key="input_musteri")
@@ -94,8 +99,9 @@ else:
     
     siparisler = {}
 
+    # Ürünleri Listeleme Döngüsü
     for i, row in df.iterrows():
-        model_kodu = str(row.get('Kodu', ''))
+        model_kodu = str(row.get('Kodu', '')).strip()
         stok_miktari = row.get('Miktar', 0)
         gorsel_linki = row.get('URL', '')
         fiyat = row.get('P.S.F.', '0')
@@ -105,13 +111,9 @@ else:
         except:
             stok = 0
 
-        if stok > 0:
-            # Benzersiz Key: Model Kodu kullanarak key çakışmalarını ve hatayı engelliyoruz
+        # Sadece stoğu olan ürünleri göster
+        if stok > 0 and model_kodu:
             input_key = f"sel_{model_kodu}"
-            
-            # Key'i önceden güvenli şekilde başlatıyoruz
-            if input_key not in st.session_state:
-                st.session_state[input_key] = 0
 
             with st.container():
                 c_img, c_info, c_input = st.columns([1, 2, 1])
@@ -128,7 +130,7 @@ else:
                         siparisler[model_kodu] = adet
             st.divider()
 
-    # --- SİPARİŞ GÖNDERME ---
+    # --- SİPARİŞİ ONAYLA VE GÖNDER ---
     if st.button("🚀 Siparişi Onayla ve Gönder", use_container_width=True, type="primary"):
         if musteri and firma and siparisler:
             veri_paketi = [
@@ -145,24 +147,26 @@ else:
                 basarili = False
                 for _ in range(3):
                     try:
-                        res = requests.post(URL, json=veri_paketi, timeout=20)
-                        if res.status_code == 200:
+                        res = requests.post(URL, json=veri_paketi, timeout=25)
+                        if res.status_code == 200 and "Başarılı" in res.text:
                             basarili = True
                             break
                     except:
                         time.sleep(1)
 
                 if basarili:
-                    # Seçili ürün adetlerini güvenli sıfırlama
-                    for k in list(st.session_state.keys()):
-                        if k.startswith("sel_"):
-                            st.session_state[k] = 0
+                    # GÜVENLİ SIFIRLAMA: Session state üzerindeki adet seçimlerini temizliyoruz
+                    for key in list(st.session_state.keys()):
+                        if key.startswith("sel_"):
+                            del st.session_state[key]
 
+                    # Başarı bayrağını set et, önbelleği temizle ve sayfayı yenile
                     st.session_state.siparis_gonderildi = True
+                    st.cache_data.clear()
                     st.rerun()
                 else:
-                    st.error("⚠️ Sunucu yoğunluğu nedeniyle iletilemedi. Lütfen butona tekrar basarak deneyin.")
+                    st.error("⚠️ Sunucu yoğunluğu nedeniyle iletilemedi. Lütfen tekrar deneyin.")
         else:
-            st.warning("⚠️ Lütfen isim, firma ve en az bir ürün seçtiğinizden emin olun.")
+            st.warning("⚠️ Lütfen adınızı, firmanızı doldurduğunuzdan ve en az bir üründen adet seçtiğinizden emin olun.")
 
 st.caption("© 2026 Has Saat")
